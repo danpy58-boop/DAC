@@ -1,0 +1,202 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TaskStatus {
+  OPEN
+  DONE
+}
+
+enum VenueRole {
+  VIEWER
+  SUPERVISOR
+  MANAGER
+  DIRECTOR
+}
+
+enum AuditEntityType {
+  SHIFT_REPORT
+  NOTE
+  TASK
+}
+
+enum AuditActionType {
+  CREATED
+  UPDATED
+  COMPLETED
+  REOPENED
+  DELETED
+}
+
+model Region {
+  id        String         @id @default(cuid())
+  name      String
+  code      String         @unique
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  venues    Venue[]
+  accesses  RegionAccess[]
+}
+
+model Venue {
+  id           String         @id @default(cuid())
+  regionId     String
+  name         String
+  code         String         @unique
+  location     String
+  timezone     String         @default("America/Chicago")
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  region       Region         @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  shiftReports ShiftReport[]
+  notes        Note[]
+  tasks        Task[]
+  accesses     VenueAccess[]
+  auditLogs    AuditLog[]
+
+  @@index([regionId])
+}
+
+model User {
+  id              String         @id @default(cuid())
+  name            String
+  email           String         @unique
+  isPlatformAdmin Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  regionAccesses  RegionAccess[]
+  venueAccesses   VenueAccess[]
+  auditLogs       AuditLog[]     @relation("AuditActor")
+}
+
+model RegionAccess {
+  id        String    @id @default(cuid())
+  userId    String
+  regionId  String
+  role      VenueRole
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  region    Region    @relation(fields: [regionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, regionId])
+  @@index([regionId])
+}
+
+model VenueAccess {
+  id        String    @id @default(cuid())
+  userId    String
+  venueId   String
+  role      VenueRole
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  venue     Venue     @relation(fields: [venueId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, venueId])
+  @@index([venueId])
+}
+
+model ShiftReport {
+  id                String     @id @default(cuid())
+  venueId           String
+  venue             Venue      @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  businessDate      DateTime
+  shift             String
+  location          String
+  manager           String
+  openTables        Int        @default(0)
+  coversBooked      Int        @default(0)
+  laborPercent      Float      @default(0)
+  salesToday        Int        @default(0)
+  diningStatus      String     @default("On Track")
+  barStatus         String     @default("On Track")
+  events            String     @default("")
+  outages           String[]   @default([])
+  guestIssues       String     @default("")
+  actions           String     @default("")
+  ownerDue          String     @default("")
+  followup          String     @default("")
+  checklist         Json
+  isCompleted       Boolean    @default(false)
+  completedAt       DateTime?
+  completedByUserId String?
+  completedByName   String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  notes             Note[]
+  tasks             Task[]
+  auditLogs         AuditLog[]
+
+  @@unique([venueId, businessDate, shift])
+  @@index([venueId, businessDate, updatedAt])
+}
+
+model Note {
+  id            String       @id @default(cuid())
+  venueId       String
+  shiftReportId String?
+  category      String
+  text          String
+  author        String
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  venue         Venue        @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  shiftReport   ShiftReport? @relation(fields: [shiftReportId], references: [id], onDelete: SetNull)
+  auditLogs     AuditLog[]
+
+  @@index([venueId, createdAt])
+  @@index([shiftReportId, createdAt])
+}
+
+model Task {
+  id            String       @id @default(cuid())
+  venueId       String
+  shiftReportId String?
+  title         String
+  owner         String
+  dueTime       String
+  status        TaskStatus   @default(OPEN)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  venue         Venue        @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  shiftReport   ShiftReport? @relation(fields: [shiftReportId], references: [id], onDelete: SetNull)
+  auditLogs     AuditLog[]
+
+  @@index([venueId, createdAt])
+  @@index([shiftReportId, createdAt])
+}
+
+model AuditLog {
+  id            String          @id @default(cuid())
+  venueId       String
+  actorUserId   String?
+  actorName     String
+  actorEmail    String?
+  entityType    AuditEntityType
+  entityId      String
+  action        AuditActionType
+  summary       String
+  beforeData    Json?
+  afterData     Json?
+  shiftReportId String?
+  noteId        String?
+  taskId        String?
+  createdAt     DateTime        @default(now())
+  venue         Venue           @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  actorUser     User?           @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  shiftReport   ShiftReport?    @relation(fields: [shiftReportId], references: [id], onDelete: SetNull)
+  note          Note?           @relation(fields: [noteId], references: [id], onDelete: SetNull)
+  task          Task?           @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([venueId, createdAt])
+  @@index([entityType, entityId, createdAt])
+  @@index([shiftReportId, createdAt])
+  @@index([noteId, createdAt])
+  @@index([taskId, createdAt])
+}
